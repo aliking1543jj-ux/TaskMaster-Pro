@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskMaster Pro v2 | نظام الأقسام</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --secondary: #a855f7;
+            --bg-dark: #0f172a;
+            --glass: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+
+        body {
+            background: radial-gradient(circle at top right, #1e1b4b, #0f172a);
+            min-height: 100vh; display: flex; justify-content: center; align-items: center; color: white;
+        }
+
+        .app-container {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 95%; max-width: 550px;
+            padding: 2rem; border-radius: 30px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+        }
+
+        /* نظام الأقسام (التبويبات) */
+        .categories-nav {
+            display: flex; gap: 10px; margin-bottom: 20px;
+            overflow-x: auto; padding-bottom: 10px;
+        }
+
+        .cat-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8; padding: 10px 18px; border-radius: 15px;
+            cursor: pointer; white-space: nowrap; transition: 0.3s;
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        .cat-btn.active {
+            background: var(--primary); color: white;
+            box-shadow: 0 5px 15px rgba(99, 102, 241, 0.4);
+            border-color: transparent;
+        }
+
+        /* منطقة الإدخال */
+        .input-group { display: flex; gap: 10px; margin-bottom: 1.5rem; }
+        input {
+            flex: 1; background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 15px; border-radius: 15px; color: white; outline: none;
+        }
+
+        button#add-btn {
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            border: none; color: white; width: 50px; border-radius: 15px;
+            cursor: pointer; font-size: 1.2rem;
+        }
+
+        /* قائمة المهام */
+        ul { list-style: none; max-height: 400px; overflow-y: auto; }
+        li {
+            background: rgba(255, 255, 255, 0.03); margin-bottom: 12px;
+            padding: 15px; border-radius: 18px; display: flex;
+            justify-content: space-between; align-items: center;
+            border-right: 4px solid var(--primary);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn { from { opacity:0; transform: scale(0.9); } to { opacity:1; transform: scale(1); } }
+
+        li.completed { opacity: 0.4; text-decoration: line-through; border-right-color: #4ade80; }
+        
+        .actions i { margin-right: 12px; cursor: pointer; transition: 0.2s; }
+        .fa-check { color: #4ade80; }
+        .fa-trash { color: #f87171; }
+
+        #toast {
+            position: fixed; bottom: 20px; left: 20px; background: var(--secondary);
+            padding: 12px 25px; border-radius: 12px; display: none; z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+
+<div id="toast">تم التحديث! ✨</div>
+
+<div class="app-container">
+    <header style="text-align: center; margin-bottom: 1.5rem;">
+        <h1 id="main-title">TaskMaster <span style="font-weight: 300;">Pro</span></h1>
+        <p id="stats-text" style="color: #94a3b8; font-size: 0.8rem; margin-top: 5px;"></p>
+    </header>
+
+    <div class="categories-nav">
+        <button class="cat-btn active" onclick="switchCategory('الكل', this)"><i class="fas fa-th-large"></i> الكل</button>
+        <button class="cat-btn" onclick="switchCategory('عمل', this)"><i class="fas fa-briefcase"></i> عمل</button>
+        <button class="cat-btn" onclick="switchCategory('دراسة', this)"><i class="fas fa-book"></i> دراسة</button>
+        <button class="cat-btn" onclick="switchCategory('شخصي', this)"><i class="fas fa-user"></i> شخصي</button>
+    </div>
+
+    <div class="input-group">
+        <input type="text" id="todo-input" placeholder="أضف مهمة في هذا القسم...">
+        <button id="add-btn"><i class="fas fa-plus"></i></button>
+    </div>
+
+    <ul id="todo-list"></ul>
+</div>
+
+<script>
+    let currentCategory = 'الكل';
+    const input = document.getElementById('todo-input');
+    const addBtn = document.getElementById('add-btn');
+    const todoList = document.getElementById('todo-list');
+    const statsText = document.getElementById('stats-text');
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderTodos();
+        checkPending();
+    });
+
+    function switchCategory(cat, btn) {
+        currentCategory = cat;
+        // تحديث شكل الأزرار
+        document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderTodos();
+    }
+
+    function addTask() {
+        const text = input.value.trim();
+        if (!text) return;
+
+        const newTodo = {
+            id: Date.now(),
+            text: text,
+            category: currentCategory === 'الكل' ? 'شخصي' : currentCategory,
+            completed: false
+        };
+
+        let todos = getStored();
+        todos.push(newTodo);
+        localStorage.setItem('todos', JSON.stringify(todos));
+        
+        input.value = '';
+        renderTodos();
+        showToast("تمت إضافة المهمة بنجاح ✅");
+    }
+
+    function renderTodos() {
+        todoList.innerHTML = '';
+        let todos = getStored();
+        
+        let filtered = currentCategory === 'الكل' ? todos : todos.filter(t => t.category === currentCategory);
+        
+        filtered.forEach(todo => {
+            const li = document.createElement('li');
+            if (todo.completed) li.classList.add('completed');
+            
+            li.innerHTML = `
+                <div>
+                    <small style="display:block; color:var(--secondary); font-size:0.7rem;">#${todo.category}</small>
+                    <span>${todo.text}</span>
+                </div>
+                <div class="actions">
+                    <i class="fas fa-check" onclick="toggleTodo(${todo.id})"></i>
+                    <i class="fas fa-trash" onclick="deleteTodo(${todo.id})"></i>
+                </div>
+            `;
+            todoList.appendChild(li);
+        });
+
+        updateStats(todos);
+    }
+
+    function toggleTodo(id) {
+        let todos = getStored();
+        todos = todos.map(t => t.id === id ? {...t, completed: !t.completed} : t);
+        localStorage.setItem('todos', JSON.stringify(todos));
+        renderTodos();
+    }
+
+    function deleteTodo(id) {
+        let todos = getStored().filter(t => t.id !== id);
+        localStorage.setItem('todos', JSON.stringify(todos));
+        renderTodos();
+    }
+
+    function getStored() {
+        return localStorage.getItem('todos') ? JSON.parse(localStorage.getItem('todos')) : [];
+    }
+
+    function updateStats(todos) {
+        const pending = todos.filter(t => !t.completed).length;
+        statsText.innerText = `لديك مجموع ${pending} مهام معلقة في كل الأقسام`;
+    }
+
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.innerText = msg;
+        t.style.display = 'block';
+        setTimeout(() => t.style.display = 'none', 2000);
+    }
+
+    function checkPending() {
+        let todos = getStored();
+        let pending = todos.filter(t => !t.completed).length;
+        if(pending > 0 && "Notification" in window && Notification.permission === "granted") {
+            new Notification("تذكير الإنجاز", { body: `لديك ${pending} مهام تنتظر تنفيذه! 🚀` });
+        }
+    }
+
+    addBtn.onclick = addTask;
+    input.onkeypress = (e) => { if(e.key === 'Enter') addTask(); };
+    if ("Notification" in window) Notification.requestPermission();
+</script>
+
+</body>
+</html>
